@@ -24,6 +24,11 @@
       top: 0; left: 0;
     }
 
+    #wave-canvas {
+      pointer-events: none;
+      z-index: 1;
+    }
+
     /* UI overlay — pointerEvents none, nepřekáží animaci */
     #overlay {
       position: fixed;
@@ -78,6 +83,7 @@
 </head>
 <body>
   <canvas id="map"></canvas>
+  <canvas id="wave-canvas"></canvas>
 
   <div id="overlay">
     <div id="title-block">
@@ -388,10 +394,87 @@
   window.addEventListener('resize', resize);
 
   // ─────────────────────────────────────────
+  //  POZADÍ — VLNÍCÍ SE ČÁRY
+  // ─────────────────────────────────────────
+  const waveCanvas = document.getElementById('wave-canvas');
+  const wctx       = waveCanvas.getContext('2d');
+
+  const WAVE_LINES  = 14;
+  const WAVE_AMP    = 11;
+  const WAVE_FREQ   = 0.007;
+  const WAVE_SPEED  = 0.00045;
+  const WAVE_STEP   = 4;
+
+  function resizeWave() {
+    waveCanvas.width  = window.innerWidth;
+    waveCanvas.height = window.innerHeight;
+  }
+
+  // Sestaví cestu polygonu obce pro ořez (inverzní clip — zbytek mimo obec)
+  function buildCommuneClip(ctx2d, w, h) {
+    ctx2d.beginPath();
+    ctx2d.rect(0, 0, w, h);
+    for (const f of COMMUNE_DATA.features) {
+      const g = f.geometry;
+      if (!g) continue;
+      const polys = g.type === 'MultiPolygon' ? g.coordinates
+                  : g.type === 'Polygon'       ? [g.coordinates]
+                  : [];
+      for (const poly of polys) {
+        for (const ring of poly) {
+          const [x0, y0] = project(ring[0][0], ring[0][1]);
+          ctx2d.moveTo(x0, y0);
+          for (let i = 1; i < ring.length; i++) {
+            const [x, y] = project(ring[i][0], ring[i][1]);
+            ctx2d.lineTo(x, y);
+          }
+          ctx2d.closePath();
+        }
+      }
+    }
+    ctx2d.clip('evenodd');
+  }
+
+  function drawWaves(ts) {
+    const w = waveCanvas.width;
+    const h = waveCanvas.height;
+    wctx.clearRect(0, 0, w, h);
+
+    wctx.save();
+    buildCommuneClip(wctx, w, h);
+
+    const phase = ts * WAVE_SPEED;
+
+    for (let i = 0; i < WAVE_LINES; i++) {
+      const t          = i / (WAVE_LINES - 1);
+      const y0         = h * 0.04 + h * 0.92 * t;
+      const phaseShift = i * 0.72 + t * 2.1;
+      const alpha      = 0.10 + 0.06 * Math.sin(t * Math.PI);
+      const lw         = 1.2 + 0.9 * t;
+
+      wctx.beginPath();
+      for (let x = 0; x <= w; x += WAVE_STEP) {
+        const y = y0 + WAVE_AMP * Math.sin(WAVE_FREQ * x + phase + phaseShift);
+        x === 0 ? wctx.moveTo(x, y) : wctx.lineTo(x, y);
+      }
+      wctx.strokeStyle = `rgba(74,127,165,${alpha})`;
+      wctx.lineWidth   = lw;
+      wctx.stroke();
+    }
+
+    wctx.restore();
+    requestAnimationFrame(drawWaves);
+  }
+
+  window.addEventListener('resize', resizeWave);
+
+  // ─────────────────────────────────────────
   //  START
   // ─────────────────────────────────────────
   resize();
+  resizeWave();
   requestAnimationFrame(animate);
+  requestAnimationFrame(drawWaves);
   </script>
 </body>
 </html>
